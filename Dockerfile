@@ -28,7 +28,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /uvx /usr/local/bin/
 WORKDIR /app
 
 # Сначала только метаданные проекта — это даёт хороший cache hit для слоя зависимостей.
-COPY pyproject.toml uv.lock README.md ./
+# LICENSE нужен на этапе build, т.к. в pyproject.toml указано license = {file = "LICENSE"}
+# и hatchling валидирует его существование при сборке wheel'а.
+COPY pyproject.toml uv.lock README.md LICENSE ./
 
 # Ставим зависимости из lock-файла (без самого проекта).
 RUN --mount=type=cache,target=/root/.cache/uv \
