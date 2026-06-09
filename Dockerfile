@@ -53,7 +53,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MCP_PORT=8018 \
     MCP_PATH=/mcp \
     WORD_FILES_PATH=/app/word_files \
-    WORD_MCP_LOG_FILE=/app/logs/word-mcp.log
+    WORD_MCP_LOG_FILE=/app/logs/word-mcp.log \
+    MCP_FILES_DIR=/app/public_files \
+    MCP_FILES_URL_PREFIX=/files \
+    MCP_FILES_TTL_HOURS=24
 
 # curl нужен только для healthcheck'а; ставим минимально.
 RUN apt-get update \
@@ -66,7 +69,7 @@ WORKDIR /app
 COPY --from=builder /app /app
 
 # Каталоги под bind-mount'ы. Владельца проставит compose (user: UID:GID).
-RUN mkdir -p /app/word_files /app/logs
+RUN mkdir -p /app/word_files /app/logs /app/public_files
 
 # Все относительные пути в инструментах MCP резолвятся от CWD контейнера,
 # поэтому делаем word_files рабочим каталогом — пользовательские .docx

@@ -28,8 +28,8 @@ echo "UID=$(id -u)" >> .env
 echo "GID=$(id -g)" >> .env
 
 # 3. Создать каталоги под volume'ы с правильным владельцем
-mkdir -p word_files logs
-chown -R "$(id -u):$(id -g)" word_files logs
+mkdir -p word_files logs public_files
+chown -R "$(id -u):$(id -g)" word_files logs public_files
 
 # 4. Убедиться, что сеть ai_network существует (создаёт инфраструктурный compose)
 docker network inspect ai_network >/dev/null 2>&1 || docker network create ai_network
@@ -55,17 +55,40 @@ docker inspect --format='{{json .State.Health}}' word-mcp-server | jq
 `https://word-mcp.ai.atomsk.ru/mcp` → `http://word-mcp-server:8018/mcp`.
 Не забыть про SSE/streamable-HTTP: отключить буферизацию и поднять таймауты.
 
+Кроме `/mcp` тот же контейнер раздаёт **публичные .docx** по
+`/files/<uuid>__<name>.docx` (см. раздел `publish_word_file` ниже). В
+существующей конфигурации `server_name word-mcp.ai.atomsk.ru` уже
+используется `location /` с `proxy_pass http://word-mcp-server:8018`,
+поэтому отдельный блок не нужен — оба пути уходят на тот же upstream:
+
 ```nginx
-# MCP transport (streamable-HTTP)
-location /mcp {
-    proxy_pass http://word-mcp-server:8018;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header Connection "";
-    proxy_buffering off;
-    proxy_read_timeout 1h;
+server {
+    listen 443 ssl;
+    server_name word-mcp.ai.atomsk.ru;
+    ssl_certificate     /etc/letsencrypt/live/ai.atomsk.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ai.atomsk.ru/privkey.pem;
+
+    client_max_body_size        50M;
+    client_header_buffer_size   64k;
+    large_client_header_buffers 4 64k;
+
+    location / {
+        set $upstream_word_mcp word-mcp-server;
+        resolver 127.0.0.11 valid=30s;
+        proxy_pass http://$upstream_word_mcp:8018;
+        include /etc/nginx/conf.d/include/proxy_params;
+
+        # Streamable HTTP / SSE — потоковая передача, буферизацию отключаем.
+        proxy_buffering         off;
+        proxy_request_buffering off;
+        proxy_cache             off;
+    }
 }
 ```
+
+После этого URL `https://word-mcp.ai.atomsk.ru/files/<uuid>__<name>.docx`
+(значение `MCP_PUBLIC_BASE_URL=https://word-mcp.ai.atomsk.ru`) становится
+кликабельным из Open WebUI.
 
 ## Подключение Open WebUI
 
@@ -82,6 +105,30 @@ location /mcp {
 
 Кладите пользовательские `.docx` в `./word_files` на хосте, либо
 синхронизируйте каталог с сетевой шарой.
+
+## Возврат файла пользователю (`publish_word_file`)
+
+Чтобы агент в Open WebUI смог дать пользователю прямую ссылку на скачивание
+сгенерированного документа, нужно вызвать MCP-инструмент `publish_word_file`:
+
+```jsonc
+{ "filename": "report.docx", "download_name": "Q3-report" }
+```
+
+Инструмент:
+
+1. Копирует `./word_files/report.docx` в `./public_files/<uuid>__Q3-report.docx`.
+2. Возвращает URL вида
+   `https://word-mcp.ai.atomsk.ru/files/<uuid>__Q3-report.docx`.
+3. Сервер раздаёт эту копию через тот же FastMCP-Starlette app
+   (роут регистрируется в `register_http_routes()`).
+
+Через `MCP_FILES_TTL_HOURS=24` фоновый daemon-поток в контейнере
+ежечасно удаляет копии старше указанного срока (`0` — отключить очистку).
+
+Если переменная `MCP_PUBLIC_BASE_URL` пустая — инструмент вернёт путь
+в файловой системе и предупреждение: качать будет неоткуда, нужно
+поднять nginx и заполнить переменную.
 
 ## Обновление
 

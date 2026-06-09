@@ -15,13 +15,13 @@ services:
     container_name: word-mcp-server
     restart: unless-stopped
 
-    # Запускаем контейнер от UID/GID хоста, чтобы bind-mount'ы ./word_files
-    # и ./logs были доступны на запись. UID/GID берутся из .env (или 1000:1000
-    # по умолчанию). На ВМ перед первым запуском:
+    # Запускаем контейнер от UID/GID хоста, чтобы bind-mount'ы ./word_files,
+    # ./logs и ./public_files были доступны на запись. UID/GID берутся из .env
+    # (или 1000:1000 по умолчанию). На ВМ перед первым запуском:
     #   echo "UID=$(id -u)" >> .env
     #   echo "GID=$(id -g)" >> .env
-    #   mkdir -p word_files logs
-    #   chown -R "$(id -u):$(id -g)" word_files logs
+    #   mkdir -p word_files logs public_files
+    #   chown -R "$(id -u):$(id -g)" word_files logs public_files
     user: "${UID:-1000}:${GID:-1000}"
 
     env_file:
@@ -40,10 +40,17 @@ services:
       WORD_FILES_PATH: /app/word_files
       # Лог-файл (loguru/logging пишет append'ом; ротация — внешними средствами).
       WORD_MCP_LOG_FILE: /app/logs/word-mcp.log
+      # Публичные копии файлов, опубликованных через MCP-инструмент
+      # publish_word_file. Раздаются тем же контейнером по
+      # ${MCP_FILES_URL_PREFIX}/<uuid>__<name>.docx. Внешние значения
+      # MCP_PUBLIC_BASE_URL / MCP_FILES_TTL_HOURS подтягиваются из .env.
+      MCP_FILES_DIR: /app/public_files
+      MCP_FILES_URL_PREFIX: ${MCP_FILES_URL_PREFIX:-/files}
 
     volumes:
       - ./word_files:/app/word_files
       - ./logs:/app/logs
+      - ./public_files:/app/public_files
 
     networks:
       - ai_network

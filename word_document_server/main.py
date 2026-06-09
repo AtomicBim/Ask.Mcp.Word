@@ -22,10 +22,12 @@ from word_document_server.tools import (
     protection_tools,
     footnote_tools,
     extended_document_tools,
-    comment_tools
+    comment_tools,
+    publish_tools,
 )
 from word_document_server.tools.content_tools import replace_paragraph_block_below_header_tool
 from word_document_server.tools.content_tools import replace_block_between_manual_anchors_tool
+from word_document_server.utils import publish as _publish
 
 def get_transport_config():
     """
@@ -625,6 +627,26 @@ def register_tools():
     def get_comments_for_paragraph(filename: str, paragraph_index: int):
         """Extract comments for a specific paragraph in a Word document."""
         return comment_tools.get_comments_for_paragraph(filename, paragraph_index)
+
+    # Publishing tool — exposes a generated .docx via HTTP for Open WebUI.
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Publish Word File",
+        ),
+    )
+    async def publish_word_file(filename: str, download_name: str = None):
+        """Publish a generated .docx for download via HTTP.
+
+        Copies ``filename`` from the working directory to the public files
+        directory (``MCP_FILES_DIR``) under a UUID-based name and returns a
+        full HTTPS URL that the chat front-end can render as a download link.
+
+        Args:
+            filename: Path to a .docx inside the working directory.
+            download_name: Optional cosmetic name embedded into the public
+                URL after a UUID (for nicer download dialogs).
+        """
+        return await publish_tools.publish_word_file(filename, download_name)
     # New table column width tools
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -693,6 +715,48 @@ def register_tools():
 
 
 
+def register_http_routes():
+    """Register HTTP routes exposed by the FastMCP Starlette app.
+
+    Currently only serves the ``/files/<name>`` download endpoint used by
+    the ``publish_word_file`` tool. The URL prefix is read from
+    ``MCP_FILES_URL_PREFIX`` (default ``/files``) so it can be aligned
+    with the upstream nginx ``location /files/`` block without touching
+    the code.
+    """
+    # Local import keeps non-HTTP transports (stdio) free of any
+    # Starlette dependency at startup time.
+    from starlette.responses import FileResponse, Response
+
+    url_prefix = _publish.get_url_prefix()
+    route_path = f"{url_prefix}/{{filename}}"
+
+    DOCX_MIME = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+    async def serve_published_file(request):
+        filename = request.path_params.get("filename", "")
+        path = _publish.resolve_published_path(filename)
+        if path is None:
+            return Response(status_code=404)
+        # The published filename starts with a UUID, so the suffix after
+        # the double underscore (if any) is what makes sense to surface
+        # in the Content-Disposition header.
+        display_name = filename.split("__", 1)[-1] if "__" in filename else filename
+        return FileResponse(
+            path,
+            media_type=DOCX_MIME,
+            filename=display_name,
+        )
+
+    # FastMCP 2.x/3.x exposes a `custom_route` decorator that mounts a
+    # Starlette route onto the streamable-http / SSE app. Using it as a
+    # plain call (not as a decorator) lets us build the path from env.
+    mcp.custom_route(route_path, methods=["GET"])(serve_published_file)
+    print(f"Registered file download route: {route_path}")
+
+
 def run_server():
     """Run the Word Document MCP Server with configurable transport."""
     # Get transport configuration
@@ -703,9 +767,17 @@ def run_server():
     
     # Register all tools
     register_tools()
-    
-    # Print startup information
+
     transport_type = config['transport']
+
+    # HTTP-only side effects: file download endpoint + cleanup of expired
+    # published files. stdio transport never serves HTTP, so skipping
+    # these keeps it free of unused threads and Starlette imports.
+    if transport_type in ('streamable-http', 'sse'):
+        register_http_routes()
+        _publish.start_cleanup_thread()
+
+    # Print startup information
     print(f"Starting Word Document MCP Server with {transport_type} transport...")
     
     # if config['debug']:
