@@ -1,0 +1,37 @@
+# VCS / IDE
+.git
+.github
+.gitignore
+.idea
+.vscode
+.DS_Store
+
+# Python artefacts
+__pycache__
+*.py[cod]
+*.egg-info
+build/
+dist/
+wheels/
+.venv
+venv
+
+# Tests / docs / config мусор, не нужный в runtime-образе
+tests/
+test_*.py
+*_test.py
+RENDER_DEPLOYMENT.md
+smithery.yaml
+setup_mcp.py
+mcp-config.json
+
+# Локальные данные / артефакты деплоя
+.env
+.env.local
+word_files/
+logs/
+public_files/
+excel_files/
+
+# Старый пример (на случай если ещё не удалён)
+vm_examlpe/

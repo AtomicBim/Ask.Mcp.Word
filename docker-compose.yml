@@ -1,0 +1,63 @@
+# Word MCP Server (FastMCP, streamable-http транспорт на /mcp).
+# Доступ снаружи — через общий nginx по адресу
+# https://word-mcp.ai.atomsk.ru/mcp, поэтому порт наружу НЕ публикуем.
+#
+# Внутри docker-сети ai_network сервис доступен другим контейнерам
+# (open-webui, nginx и т.п.) по адресу http://word-mcp-server:8018/mcp.
+
+services:
+  word-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    pull_policy: never
+    image: word-mcp-server:latest
+    container_name: word-mcp-server
+    restart: unless-stopped
+
+    # Запускаем контейнер от UID/GID хоста, чтобы bind-mount'ы ./word_files
+    # и ./logs были доступны на запись. UID/GID берутся из .env (или 1000:1000
+    # по умолчанию). На ВМ перед первым запуском:
+    #   echo "UID=$(id -u)" >> .env
+    #   echo "GID=$(id -g)" >> .env
+    #   mkdir -p word_files logs
+    #   chown -R "$(id -u):$(id -g)" word_files logs
+    user: "${UID:-1000}:${GID:-1000}"
+
+    env_file:
+      - .env
+
+    environment:
+      # Транспорт и сетевые настройки (читаются word_document_server/main.py).
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8018"
+      MCP_PATH: /mcp
+      # Каталог с пользовательскими .docx (внутри контейнера). Используется
+      # как CWD процесса, поэтому все относительные пути инструментов
+      # (create_document, copy_document, list_available_documents и т.п.)
+      # резолвятся именно сюда.
+      WORD_FILES_PATH: /app/word_files
+      # Лог-файл (loguru/logging пишет append'ом; ротация — внешними средствами).
+      WORD_MCP_LOG_FILE: /app/logs/word-mcp.log
+
+    volumes:
+      - ./word_files:/app/word_files
+      - ./logs:/app/logs
+
+    networks:
+      - ai_network
+
+    healthcheck:
+      # Streamable-HTTP отвечает на GET /mcp редиректом 307 (на /mcp/) либо
+      # 4xx без правильных MCP-заголовков. Любой из этих кодов означает,
+      # что сервер жив и принимает соединения.
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8018/mcp | grep -E '^(200|307|400|404|405|406)$' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  ai_network:
+    external: true
