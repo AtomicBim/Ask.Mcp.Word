@@ -814,6 +814,13 @@ def run_server():
     # published files. stdio transport never serves HTTP, so skipping
     # these keeps it free of unused threads and Starlette imports.
     if transport_type in ('streamable-http', 'sse'):
+        # Pre-flight check: failing to write into MCP_FILES_DIR is the most
+        # common deployment mistake (bind-mount owned by root on the host
+        # while the container runs as UID 1000). Log it loudly at startup
+        # so the user sees the fix before the first publish call fails.
+        write_err = _publish.check_public_dir_writable()
+        if write_err:
+            print(f"WARNING: {write_err}")
         register_http_routes()
         _publish.start_cleanup_thread()
 

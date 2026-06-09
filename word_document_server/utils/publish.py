@@ -60,6 +60,50 @@ def ensure_public_dir() -> Path:
     return d
 
 
+def _permission_hint(target: Path, exc: OSError) -> str:
+    """Render a `Permission denied` error with an operator-friendly hint.
+
+    Bind-mounted directories on the host very often end up owned by ``root``
+    (e.g. when ``docker compose up`` is the very first command that creates
+    them) while the container itself runs as the unprivileged ``${UID}:${GID}``
+    from ``.env``. The raw ``[Errno 13]`` message gives the user no clue
+    how to fix that — this helper does.
+    """
+    try:
+        uid = os.geteuid()
+        gid = os.getegid()
+        whoami = f"UID={uid} GID={gid}"
+    except AttributeError:  # Windows: geteuid is not available
+        whoami = "the container process"
+
+    return (
+        f"Permission denied writing to {target} as {whoami}: {exc}. "
+        f"On the Docker host run: "
+        f"chown -R \"$(id -u):$(id -g)\" "
+        f"word_files logs public_files  "
+        f"(and `docker compose restart word-mcp-server`)."
+    )
+
+
+def check_public_dir_writable() -> Optional[str]:
+    """Verify we can write into ``MCP_FILES_DIR`` and return an error string
+    (or ``None`` on success). Called once at server startup so misconfigured
+    bind-mount permissions surface in the logs immediately, not only when
+    the first user actually tries to publish a file.
+    """
+    public_dir = get_public_dir()
+    try:
+        public_dir.mkdir(parents=True, exist_ok=True)
+        probe = public_dir / ".write_probe"
+        probe.write_bytes(b"")
+        probe.unlink(missing_ok=True)
+        return None
+    except PermissionError as exc:
+        return _permission_hint(public_dir, exc)
+    except OSError as exc:
+        return f"Public dir {public_dir} is not usable: {exc}"
+
+
 def publish_file(
     source_path: str,
     suggested_name: Optional[str] = None,
@@ -88,6 +132,8 @@ def publish_file(
 
     try:
         public_dir = ensure_public_dir()
+    except PermissionError as exc:
+        return None, None, _permission_hint(get_public_dir(), exc)
     except OSError as exc:
         return None, None, f"Cannot create public dir {get_public_dir()}: {exc}"
 
@@ -107,6 +153,8 @@ def publish_file(
 
     try:
         shutil.copy2(src, dst)
+    except PermissionError as exc:
+        return None, None, _permission_hint(public_dir, exc)
     except OSError as exc:
         return None, None, f"Failed to publish file: {exc}"
 
