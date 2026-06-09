@@ -56,7 +56,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WORD_MCP_LOG_FILE=/app/logs/word-mcp.log \
     MCP_FILES_DIR=/app/public_files \
     MCP_FILES_URL_PREFIX=/files \
-    MCP_FILES_TTL_HOURS=24
+    MCP_FILES_TTL_HOURS=24 \
+    OWUI_HTTP_TIMEOUT=30
 
 # curl нужен только для healthcheck'а; ставим минимально.
 RUN apt-get update \

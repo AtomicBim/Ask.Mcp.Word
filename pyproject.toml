@@ -23,6 +23,9 @@ dependencies = [
     "msoffcrypto-tool>=5.4.2",
     "docx2pdf>=0.1.8",
     "pytest>=8.4.2",
+    # httpx is pulled in transitively by fastmcp, but the OWUI importer
+    # uses it directly — declaring it explicitly pins the contract.
+    "httpx>=0.27",
 ]
 
 [project.urls]

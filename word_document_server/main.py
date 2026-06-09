@@ -24,6 +24,7 @@ from word_document_server.tools import (
     extended_document_tools,
     comment_tools,
     publish_tools,
+    owui_tools,
 )
 from word_document_server.tools.content_tools import replace_paragraph_block_below_header_tool
 from word_document_server.tools.content_tools import replace_block_between_manual_anchors_tool
@@ -647,6 +648,45 @@ def register_tools():
                 URL after a UUID (for nicer download dialogs).
         """
         return await publish_tools.publish_word_file(filename, download_name)
+
+    # Import tool — pulls a .docx attached in OWUI into the local sandbox.
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Import Word File from Open WebUI",
+        ),
+    )
+    def import_word_from_owui(file_id: str, save_as: str = None):
+        """Download a .docx attached in Open WebUI into the local sandbox.
+
+        Uses the OWUI Files API (``GET /api/v1/files/{file_id}/content``)
+        with a bearer token to fetch the **original** binary — not the
+        extracted text representation that OWUI also keeps for RAG. The
+        payload is verified to be a real ZIP / .docx via magic bytes
+        before being written atomically into ``WORD_FILES_PATH``.
+
+        The model cannot read ``file_id`` from chat context through the
+        streamable-http transport on its own — the user (or an OWUI
+        filter) must surface it explicitly in the prompt.
+
+        Args:
+            file_id: OWUI file id of an uploaded .docx (UUID-like token,
+                ``[A-Za-z0-9._-]{1,128}``).
+            save_as: Optional preferred filename. Any directories are
+                stripped, the result is sanitised to ``[A-Za-z0-9._-]``
+                and forced to end with ``.docx``. If omitted, the name
+                returned by OWUI's ``Content-Disposition`` is used,
+                falling back to ``{file_id}.docx``.
+
+        Returns:
+            A POSIX-style path relative to ``WORD_FILES_PATH`` that
+            ``get_document_info``, ``add_paragraph``, etc. accept directly,
+            or a one-line ``"Error: ..."`` message on failure.
+
+        Requires environment variables:
+            OWUI_BASE_URL — e.g. ``https://chat.example.com``
+            OWUI_API_KEY  — bearer token from Settings → Account → API Keys
+        """
+        return owui_tools.import_word_from_owui(file_id, save_as)
     # New table column width tools
     @mcp.tool(
         annotations=ToolAnnotations(

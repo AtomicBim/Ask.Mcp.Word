@@ -767,6 +767,7 @@ source = { editable = "." }
 dependencies = [
     { name = "docx2pdf" },
     { name = "fastmcp" },
+    { name = "httpx" },
     { name = "msoffcrypto-tool" },
     { name = "pytest" },
     { name = "python-docx" },
@@ -776,6 +777,7 @@ dependencies = [
 requires-dist = [
     { name = "docx2pdf", specifier = ">=0.1.8" },
     { name = "fastmcp", specifier = ">=2.8.1" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "msoffcrypto-tool", specifier = ">=5.4.2" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "python-docx", specifier = ">=1.1.2" },
